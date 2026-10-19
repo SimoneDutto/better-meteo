@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kindle display check · Better Meteo</title>
+<style>
+html,body{margin:0;padding:0;background:white;color:black;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.3}body{padding:12px}h1{font-size:22px;margin:0 0 8px}p{margin:8px 0}table{border-collapse:collapse;width:100%;max-width:850px}th,td{text-align:left;border-bottom:1px solid #aaa;padding:5px 3px;font-weight:normal}th{width:48%}a{color:black}.small{font-size:11px;word-wrap:break-word;overflow-wrap:break-word;max-width:850px}.portrait{display:inline}.landscape{display:none}@media(orientation:landscape){.portrait{display:none}.landscape{display:inline}}
+</style>
+</head>
+<body>
+<h1>Display check</h1>
+<p>CSS detects: <strong class="portrait">portrait</strong><strong class="landscape">landscape</strong>. Reload after changing the Kindle orientation.</p>
+<table>
+<tr><th>Window viewport (CSS px)</th><td id="window">JavaScript unavailable</td></tr>
+<tr><th>Document viewport (CSS px)</th><td id="document">—</td></tr>
+<tr><th>Screen reported by browser</th><td id="screen">—</td></tr>
+<tr><th>Pixel ratio</th><td id="ratio">—</td></tr>
+<tr><th>Orientation API</th><td id="orientation">—</td></tr>
+<tr><th>Unprefixed flex / grid</th><td id="layout">—</td></tr>
+<tr><th>CSS variables / clamp()</th><td id="modern">—</td></tr>
+<tr><th>Viewport units vh / dvh</th><td id="units">—</td></tr>
+</table>
+<p class="small" id="agent"></p>
+<p class="small">The window/document viewport controls the page layout. CSS pixels can differ from hardware pixels. This page only reads browser properties; it sends no diagnostic data and makes no weather requests.</p>
+<p><a href="./">Back to dashboard</a></p>
+<noscript><p>JavaScript is disabled or unsupported. The CSS orientation indicator above still works. The dashboard itself does not require JavaScript.</p></noscript>
+<script>
+(function () {
+  function show(id, value) { document.getElementById(id).textContent = value; }
+  function supports(property, value) {
+    var style = document.createElement('div').style;
+    try { style.setProperty(property, value, ''); return style.getPropertyValue(property) !== ''; }
+    catch (e) { return false; }
+  }
+  function yes(value) { return value ? 'yes' : 'no'; }
+  function size(width, height) { return width + ' × ' + height; }
+  function update() {
+    var root = document.documentElement;
+    show('window', size(window.innerWidth, window.innerHeight));
+    show('document', size(root.clientWidth, root.clientHeight));
+    show('screen', size(window.screen.width, window.screen.height));
+    show('ratio', window.devicePixelRatio || 'not reported');
+    show('orientation', window.screen.orientation ? window.screen.orientation.type : (typeof window.orientation !== 'undefined' ? window.orientation : 'not available'));
+    show('layout', yes(supports('display', 'flex')) + ' / ' + yes(supports('display', 'grid')));
+    show('modern', yes(supports('width', 'var(--display-check)')) + ' / ' + yes(supports('width', 'clamp(1px, 2px, 3px)')));
+    show('units', yes(supports('height', '100vh')) + ' / ' + yes(supports('height', '100dvh')));
+    show('agent', navigator.userAgent);
+  }
+  update();
+  if (window.addEventListener) {
+    window.addEventListener('resize', update, false);
+    window.addEventListener('orientationchange', update, false);
+  }
+}());
+</script>
+</body>
+</html>
