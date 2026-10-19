@@ -1,0 +1,84 @@
+---
+import Empty from './Empty.astro';
+import { number, date } from '../lib/data';
+const { climate, city, link } = Astro.props;
+const views = ['overview','periods','charts','records','method'];
+const view = views.includes(Astro.props.view) ? Astro.props.view : 'overview';
+const records = climate?.data?.annual.filter((r:any)=>r.high!=null||r.low!=null||r.precipitation!=null)||[];
+const pages = Math.max(1,Math.ceil(records.length/10));
+const page = Math.max(0,Math.min(pages-1,Number.parseInt(Astro.props.page||'0',10)||0));
+const hasNext = page + 1 < pages;
+const go = (target:string,extra:Record<string,string>={})=>link('climate',{view:target,...extra});
+const data = climate?.data;
+const names: Record<string,string> = {high:'Average daily high',low:'Average daily low',precipitation:'Total precipitation',rain:'Rain',snow:'Snowfall'};
+const signed = (v:any, digits=1) => typeof v==='number' ? `${v>0?'+':''}${number(v,digits)}` : '—';
+const baselineYears = data ? Math.min(...data.metrics.map((m:any)=>m.years)) : 0;
+const partial = data?.metrics.some((m:any)=>m.actual==null);
+const periodsReady = data?.changes.some((m:any)=>m.difference!=null);
+const charts = data ? ['high','low','precipitation'].map(key=>{
+  const rows = data.annual;
+  const valid = rows.filter((r:any)=>r[key]!=null);
+  if (!valid.length) return null;
+  const min = Math.min(...valid.map((r:any)=>r[key]));
+  const max = Math.max(...valid.map((r:any)=>r[key]));
+  const span = Math.max(max-min,key==='precipitation'?100:1);
+  const bottom = min-span*.1;
+  const top = max+span*.1;
+  const firstYear = valid[0].year;
+  const lastYear = valid.at(-1).year;
+  const x=(year:number)=>58+(year-firstYear)/Math.max(1,lastYear-firstYear)*600;
+  const y=(value:number)=>160-(value-bottom)/(top-bottom)*130;
+  let path=''; let connected=false;
+  for (const row of rows) {
+    if(row[key]==null) {connected=false;continue;}
+    path+=`${connected?'L':'M'}${x(row.year).toFixed(1)},${y(row[key]).toFixed(1)} `;
+    connected=true;
+  }
+  const ticks = [...new Set([firstYear, Math.round((firstYear+lastYear)/2), lastYear])];
+  return {key,valid,min,max,x,y,path,rows,firstYear,lastYear,ticks};
+}).filter(Boolean) : [];
+---
+
+{!data ? <Empty title="Climate history has not been collected" message="Recent conditions appear after a permitted sync. Historical comparisons use the archive downloaded separately by the owner. No sample data is displayed."/> : <>
+  <div class="section-line"><h2>Local climate</h2><span>ERA5 · approximately 25 km</span></div>
+  <nav class="subtabs" aria-label="Climate views">{[['overview','15-day window'],['periods','30-year change'],['charts','Annual charts'],['records','Annual values'],['method','Method']].map(([id,label])=><a href={go(id)} aria-current={view===id?'page':undefined}>{label}</a>)}</nav>
+  {view==='overview'&&<>
+    <p class="period-label">{date(data.start,city.timezone)} – {date(data.end,city.timezone,{day:'numeric',month:'short',year:'numeric'})} · UTC days · {data.lag_days}-day data lag</p>
+    {baselineYears<24&&<p class="notice">Historical baseline incomplete: <strong>{baselineYears}/30 years</strong> available; at least 24 needed for comparisons.</p>}
+    <table class="climate-comparison"><caption>15-day temperatures: average daily high/low. Precipitation: totals.</caption><thead><tr><th>Measure</th><th>Recent</th><th>1991–2020</th><th>Difference</th></tr></thead><tbody>{data.metrics.map((m:any)=><tr><th scope="row">{names[m.key]}</th><td>{number(m.actual??m.available_value,1)} {m.unit}{m.actual==null&&<small class="coverage">Partial · {m.available_days??0}/15 days</small>}</td><td>{m.normal==null?'Pending':`${number(m.normal,1)} ${m.unit}`}</td><td>{signed(m.difference)} {m.unit}</td></tr>)}</tbody></table>
+    <div class="section-line"><h3>Change between 30-year periods</h3></div>
+    {periodsReady?<div class="climate-deltas">{data.changes.filter((m:any)=>['high','low','precipitation'].includes(m.key)).map((m:any)=><div><span>{names[m.key]}</span><strong>{signed(m.difference)} {m.unit}</strong></div>)}</div>:<p class="muted">Pending historical collection. Each period needs 24 complete years. Downloaded records are available in Annual values.</p>}
+    <p class="note">A short anomaly describes weather, not a climate trend or human attribution. Rain/total precipitation: mm water equivalent. Snow: fresh depth in cm. Missing days are not zeros.</p>
+    <p class="archive-progress">Archive: {data.completed_batches}/{data.total_batches} batches · saved locally · historical downloads are separate from sync.</p>
+  </>}
+  {view==='periods'&&<>
+    <p class="period-label">Annual values averaged over 1961–1990 and 1991–2020.</p>
+    <table><thead><tr><th>Measure</th><th>1961–1990</th><th>1991–2020</th><th>Change</th></tr></thead><tbody>{data.changes.map((m:any)=><tr><th>{names[m.key]}</th><td>{number(m.old,1)} {m.unit}</td><td>{number(m.modern,1)} {m.unit}</td><td>{signed(m.difference)} {m.unit}</td></tr>)}</tbody></table>
+    <table><caption>Complete years available · at least 24/30 needed per period</caption><thead><tr><th>Measure</th><th>1961–1990</th><th>1991–2020</th></tr></thead><tbody>{data.changes.map((m:any)=><tr><td>{names[m.key]}</td><td>{m.old_years}/30</td><td>{m.modern_years}/30</td></tr>)}</tbody></table>
+    <p class="note">Temperatures: average daily high/low. Precipitation: average annual total, water equivalent. Snow: annual fresh-snow depth. Descriptive changes, without a significance test or human attribution. Neither period is preindustrial.</p>
+  </>}
+  {view==='charts'&&<div class="annual-charts">
+    {charts.map((chart:any)=><figure class="climate-chart"><figcaption>{names[chart.key]} · {chart.key==='precipitation'?'mm/year':'°C'} · {chart.firstYear}–{chart.lastYear} ({chart.valid.length} years)</figcaption><svg viewBox="0 0 700 195" role="img" aria-label={`${names[chart.key]} annual history; ${chart.valid.length} complete years`}>
+      <line x1="58" y1="170" x2="658" y2="170" stroke="black"/>
+      {[chart.min,chart.max].map(v=><><line x1="58" x2="658" y1={chart.y(v)} y2={chart.y(v)} stroke="#aaa" stroke-dasharray="3 4"/><text x="48" y={chart.y(v)+4} text-anchor="end">{number(v,chart.key==='precipitation'?0:1)}</text></>)}
+      <path d={chart.path} fill="none" stroke="black" stroke-width="2"/>
+      {chart.valid.map((r:any)=><circle cx={chart.x(r.year)} cy={chart.y(r[chart.key])} r="2.5" fill="black"/>)}
+      {chart.ticks.map((year:number)=><text x={chart.x(year)} y="190" text-anchor="middle">{year}</text>)}
+    </svg></figure>)}
+    {!charts.length&&<Empty title="Annual history pending" message="Charts appear after a complete historical year is saved."/>}
+    <p class="note">Complete years only; gaps mean missing data. A few downloaded years do not establish a long-term trend.</p>
+  </div>}
+  {view==='records'&&<>
+    <div class="section-line"><h3>Complete annual values</h3><span>Page {page+1}/{pages}</span></div>
+    <table><thead><tr><th>Year</th><th>High °C</th><th>Low °C</th><th>Precip. mm</th><th>Rain mm</th><th>Snow cm</th></tr></thead><tbody>{records.slice(page*10,page*10+10).map((r:any)=><tr><td>{r.year}</td><td>{number(r.high,1)}</td><td>{number(r.low,1)}</td><td>{number(r.precipitation,1)}</td><td>{number(r.rain,1)}</td><td>{number(r.snow,1)}</td></tr>)}</tbody></table>
+    <nav class="pager" aria-label="Annual records">{page>0&&<a href={go('records',{page:String(page-1)})}>← Previous</a>}{hasNext&&<a href={go('records',{page:String(page+1)})}>Next →</a>}</nav>
+    <p class="note">Temperature: annual average daily high/low. Rain, precipitation and snowfall: annual totals. Each value requires a complete calendar year. Missing values remain —.</p>
+  </>}
+  {view==='method'&&<div class="climate-method">
+    <p><strong>Source.</strong> <a href="https://open-meteo.com/en/docs/historical-weather-api">Open-Meteo / Copernicus ERA5 · CC BY 4.0</a>. Reanalysis estimates for the selected location, approximately 25 km resolution. Urban and Alpine conditions are smoothed; this is not a station record or a regional spatial average.</p>
+    <p><strong>Recent period.</strong> A 28-day buffer ends six days before collection. We select the latest complete 15-day window. Further publication delays shift its dates; incomplete values are labelled with their day count and excluded from anomalies.</p>
+    <p><strong>Reference.</strong> Matching 15-day windows ending on the same month/day in 1991–2020. February 29 maps to February 28. At least 24 complete reference windows are required per measure. Long-period comparisons require 24 complete years per period.</p>
+    <p><strong>Interpretation.</strong> Short anomalies show weather variability. Period differences describe changes; no significance test or human attribution is claimed. Neither period is preindustrial. Precipitation totals alone do not diagnose drought.</p>
+    <p><strong>Coverage.</strong> {data.completed_batches}/{data.total_batches} archive batches saved. Downloaded once by the owner, 1991–2020 first. Normal sync only updates recent weather. All data is cached; page navigation makes no provider requests.</p>
+  </div>}
+</>}

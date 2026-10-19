@@ -1,0 +1,15 @@
+---
+import Empty from './Empty.astro';
+import { number as n, date } from '../lib/data';
+const { rainfall, city } = Astro.props;
+const rain = rainfall?.data;
+const highest = rain ? Math.max(1,...rain.days.map((d:any)=>d.mm||0)):1;
+---
+{rain ? <>
+  <section class="rain-summary strip"><div><span class="eyebrow">LAST 15 COMPLETED DAYS</span><div class="temperature">{n(rain.total,1)}<span>mm</span></div><p>{rain.complete_days} / 15 days available</p></div><div><span class="eyebrow">DATA SOURCE</span><p>{rain.source}</p><p class="muted">Model estimates, not station readings. Climate comparisons have a separate ERA5 baseline.</p></div></section>
+  <div class="section-line"><h2>Daily precipitation</h2><span>Water equivalent · mm</span></div>
+  <div class="rain-chart" role="img" aria-label="Precipitation in each of the previous fifteen days">{rain.days.map((d:any)=><div class="rain-column"><span>{n(d.mm,1)}</span><div class="rain-track"><div class:list={['rain-bar',{'missing':d.mm==null}]} style={`height:${d.mm==null?100:Math.max(1,d.mm/highest*100)}%`}></div></div><span class="muted">{d.date.slice(8)}</span></div>)}</div>
+  <p class="muted">{date(rain.days[0].date,city.timezone)} — {date(rain.days[14].date,city.timezone)} · latest source date: {rain.last_available||'unknown'}</p>
+  <div class="section-line"><h2>A longer perspective</h2><span>Rolling totals</span></div><div class="periods">{rain.periods.map((p:any)=><div><span class="eyebrow">{p.days} DAYS</span><p class="large">{n(p.mm)} <small>mm</small></p></div>)}</div>
+  <p class="note">{rain.source}. Missing days are not treated as dry days. These totals provide context for dry conditions; they do not measure soil moisture, snow reserves or river flows, or diagnose drought.</p>
+</> : <Empty title="Rainfall history not collected yet" message="Open-Meteo will supply explicitly labelled ECMWF model estimates for this location." />}

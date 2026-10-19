@@ -1,0 +1,16 @@
+---
+import Empty from './Empty.astro';
+import { compass, number as n, date } from '../lib/data';
+const { forecast, city } = Astro.props;
+const current = forecast?.data?.current;
+const hourly = forecast?.data?.hourly;
+const daily = forecast?.data?.daily;
+const now = new Intl.DateTimeFormat('sv-SE',{timeZone:city.timezone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');
+const upcoming = hourly?.time.map((t:string,i:number)=>({t,i})).filter((v:any)=>v.t>=now).slice(0,48).filter((_:any,i:number)=>i%3===0)||[];
+---
+{daily ? <>
+  <section class="wind-summary strip"><div class="compass" aria-label={`Wind from ${compass(current?.wind_direction_10m)}; arrow shows travel direction`}><span class="north">N</span><span class="east">E</span><span class="south">S</span><span class="west">W</span><div class="compass-arrow" style={`transform:rotate(${(current?.wind_direction_10m||0)+180}deg)`}>↑</div></div><div><span class="eyebrow">10 METRES ABOVE GROUND · MODEL CONDITIONS</span><p class="large">{n(current?.wind_speed_10m)} <small>km/h</small></p><p>From {compass(current?.wind_direction_10m)} · {n(current?.wind_direction_10m)}°</p><p class="muted">Arrow points toward the destination.</p></div></section>
+  <div class="section-line"><h2>Next 48 hours</h2><span>Selected hourly samples · local time</span></div>
+  {upcoming.length ? <div class="wind-grid">{upcoming.map(({t,i}:any)=><div><span>{t.slice(8,10)} · {t.slice(11,16)}</span><strong class="wind-arrow" style={`transform:rotate(${(hourly.wind_direction_10m[i]||0)+180}deg)`} aria-hidden="true">↑</strong><strong>From {compass(hourly.wind_direction_10m[i])}</strong><span>{n(hourly.wind_speed_10m[i])} km/h</span><span class="muted">Gust {n(hourly.wind_gusts_10m[i])}</span></div>)}</div> : <p class="note">No upcoming hourly samples in this cache. The forecast needs a scheduled update.</p>}
+  <div class="table-wrap"><table><thead><tr><th>Day</th><th>Prevailing from</th><th>Max speed</th><th>Max gust</th></tr></thead><tbody>{daily.time.slice(0,7).map((t:string,i:number)=><tr><th>{date(t,city.timezone)}</th><td>{compass(daily.wind_direction_10m_dominant[i])}</td><td>{n(daily.wind_speed_10m_max[i])} km/h</td><td>{n(daily.wind_gusts_10m_max[i])} km/h</td></tr>)}</tbody></table></div>
+</> : <Empty />}

@@ -1,0 +1,17 @@
+services:
+  dashboard:
+    build: .
+    ports:
+      - "127.0.0.1:4321:4321"
+    volumes:
+      - ./data:/app/data:ro
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+  collector:
+    build: .
+    profiles: [live]
+    command: ["sh", "-c", "while true; do python -m collector sync; python -m collector render; sleep 3600; done"]
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped

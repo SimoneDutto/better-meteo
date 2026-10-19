@@ -1,0 +1,10 @@
+node_modules
+dist
+.venv
+.git
+.agents
+.codex
+.aws
+data
+__pycache__
+tests

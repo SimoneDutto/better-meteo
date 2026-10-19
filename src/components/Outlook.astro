@@ -1,0 +1,30 @@
+---
+import Empty from './Empty.astro';
+import { number as n, date } from '../lib/data';
+const { ecmwf, gfs, city } = Astro.props;
+const days = ecmwf?.data || gfs?.data || [];
+const primary = ecmwf ? 'ECMWF IFS' : 'GFS';
+const all = [...(ecmwf?.data||[]),...(gfs?.data||[])].flatMap((d:any)=>[d.low,d.high]).filter((v:any)=>typeof v==='number');
+const floor = all.length ? Math.floor(Math.min(...all)-2) : 0;
+const ceiling = all.length ? Math.ceil(Math.max(...all)+2) : 40;
+const x = (i:number)=>50+i*810/Math.max(1,days.length-1);
+const y = (v:number)=>225-(v-floor)*190/(ceiling-floor);
+const points = (series:any[],key:string)=>series.map((d,i)=>d[key]!=null?`${x(i)},${y(d[key])}`:null).filter(Boolean).join(' ');
+const valid = days.every((d:any)=>d.low!=null&&d.high!=null);
+const band = valid ? points(days,'high')+' '+days.map((d:any,i:number)=>`${x(i)},${y(d.low)}`).reverse().join(' ') : '';
+---
+{days.length ? <>
+  <div class="section-line"><div><span class="eyebrow">THE LONGER VIEW</span><h2>How certain is the outlook?</h2></div><span>Daily maximum temperature</span></div>
+  <div class="chart-wrap"><svg class="outlook-chart" viewBox="0 0 900 275" role="img" aria-label="Daily maximum temperature median and middle 80 percent ensemble range">
+    <defs><pattern id="band" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0 6L6 0" stroke="#aaa" stroke-width=".7"/></pattern></defs>
+    {[0,1,2,3,4].map(i=><g><line x1="50" x2="860" y1={y(floor+i*(ceiling-floor)/4)} y2={y(floor+i*(ceiling-floor)/4)} stroke="#ddd"/><text x="38" y={y(floor+i*(ceiling-floor)/4)+4} text-anchor="end">{n(floor+i*(ceiling-floor)/4)}°</text></g>)}
+    {band && <polygon points={band} fill="url(#band)" stroke="#aaa"/>}
+    {days.map((d:any,i:number)=>d.low!=null&&d.high!=null&&<line x1={x(i)} x2={x(i)} y1={y(d.low)} y2={y(d.high)} stroke="#666" stroke-width="2"/>)}
+    {days.map((d:any,i:number)=>i>0&&d.median!=null&&days[i-1].median!=null&&<line x1={x(i-1)} y1={y(days[i-1].median)} x2={x(i)} y2={y(d.median)} stroke="#111" stroke-width="3"/>)}
+    {ecmwf&&gfs&&gfs.data.map((d:any)=>{const i=days.findIndex((v:any)=>v.date===d.date);return i>=0&&d.median!=null?<circle cx={x(i)} cy={y(d.median)} r="3" fill="white" stroke="black"/>:null;})}
+    {days.map((d:any,i:number)=>i%2===0&&<text x={x(i)} y="255" text-anchor="middle">{date(d.date,city.timezone,{day:'numeric',month:'short'})}</text>)}
+  </svg></div>
+  <p class="legend"><span>━ {primary} median</span><span>▨ Middle 80% of members</span>{ecmwf&&gfs&&<span>○ GFS median</span>}</p>
+  <div class="table-wrap"><table><thead><tr><th>Day</th><th>High · median</th><th>80% range</th><th>Temp. agreement</th><th>Rain ≥1 mm</th></tr></thead><tbody>{days.map((d:any)=><tr><th scope="row">{date(d.date,city.timezone)}</th><td>{n(d.median)}°C</td><td>{n(d.low)}° to {n(d.high)}°</td><td><span class="badge">{d.agreement||'Unavailable'}</span></td><td>{n(d.rain_probability)}%</td></tr>)}</tbody></table></div>
+  <p class="note">Temperature agreement is a spread heuristic: high ≤3°C, medium ≤6°C, low &gt;6°C between the 10th and 90th percentiles. It is not a calibrated accuracy score. Rain is the share of complete members predicting ≥1 mm that day. Missing or partial days remain unavailable.</p>
+</> : <Empty title="Ensemble data not collected yet" message="This view needs complete member forecasts from ECMWF or GFS." />}
