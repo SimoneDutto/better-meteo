@@ -4,9 +4,26 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import vm from 'node:vm';
 import { basePath, pagePath, pageUrl, pageStates } from '../src/lib/links.mjs';
 
 const project=path.resolve(import.meta.dirname,'..');
+
+test('optional display diagnostic reports CSS viewport separately from screen pixels',()=>{
+  const html=fs.readFileSync(path.join(project,'public/viewport.html'),'utf8');
+  const source=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+  assert.ok(!/\b(?:const|let)\b|=>/.test(source),'Diagnostic must use legacy-compatible JavaScript');
+  const cells={}, events={};
+  const window={innerWidth:800,innerHeight:600,devicePixelRatio:2,screen:{width:1200,height:1600},addEventListener:(event,callback)=>events[event]=callback};
+  const root={clientWidth:800,clientHeight:600};
+  const document={documentElement:root,getElementById:id=>cells[id]||(cells[id]={}),createElement:()=>({style:{setProperty:function(k,v){this[k]=v;},getPropertyValue:function(k){return this[k]||'';}}})};
+  new vm.Script(source).runInNewContext({window,document,navigator:{userAgent:'offline fixture'}});
+  assert.equal(cells.window.textContent,'800 × 600');
+  assert.equal(cells.document.textContent,'800 × 600');
+  assert.equal(cells.screen.textContent,'1200 × 1600');
+  window.innerWidth=600;window.innerHeight=800;events.orientationchange();
+  assert.equal(cells.window.textContent,'600 × 800');
+});
 
 test('static links handle project prefixes, climate pagination, animation and rotation',()=>{
   assert.equal(pageUrl('/weather/',{city:'turin',tab:'climate',view:'records',page:'2',cycle:'1'}),'/weather/turin/climate/records/page-2/rotate/');
@@ -55,6 +72,7 @@ test('offline export resolves every link and keeps private caches out of the sit
     assert.ok(!fs.existsSync(path.join(output,'http')));
     assert.ok(!fs.existsSync(path.join(output,'media/old-map.png')));
     assert.ok(fs.existsSync(path.join(output,'.nojekyll')));
+    assert.ok(fs.existsSync(path.join(output,'viewport.html')));
     // The same export also supports a user site/custom domain at the root.
     env.PAGES_BASE='/';result=exportSite();assert.equal(result.status,0,result.stderr);
     const published=fs.readFileSync(path.join(output,'publication.json'),'utf8');

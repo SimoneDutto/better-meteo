@@ -102,8 +102,7 @@ try {
         const timer = setTimeout(() => { events.delete(`${sessionId}:Page.loadEventFired`); reject(Error('Page load timed out')); }, 15000);
         events.set(`${sessionId}:Page.loadEventFired`, () => { clearTimeout(timer); resolve(); });
       });
-      await send('Page.navigate', { url: `file://${file}` });
-      await loaded;
+      await Promise.all([send('Page.navigate', { url: `file://${file}` }),loaded]);
       const { result, exceptionDetails } = await send('Runtime.evaluate', { awaitPromise: true, returnByValue: true, expression: `(async()=>{
         if(document.readyState!=='complete') await new Promise(r=>window.addEventListener('load',r,{once:true}));
         await document.fonts.ready; await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
@@ -113,10 +112,21 @@ try {
           const r=el.getBoundingClientRect(); if(!r.width||!r.height)return false;
           return r.bottom>bounds.bottom+2||r.right>innerWidth+2||r.left < -2;
         }).map(el=>el.tagName+'.'+el.className).slice(0,5);
-        return {width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,scrollHeight:document.documentElement.scrollHeight,bad};
+        const landscapeErrors=[];
+        if(innerWidth===800&&innerHeight===600){
+          const header=document.querySelector('header').getBoundingClientRect(), location=document.querySelector('.location-line').getBoundingClientRect();
+          if(Math.abs(header.top-location.top)>2)landscapeErrors.push('Header must share a row with location');
+          const current=main.querySelector('.current'), week=main.querySelector('.forecast-week');
+          if(current&&week&&current.getBoundingClientRect().right>week.getBoundingClientRect().left)landscapeErrors.push('Weekly forecast must sit beside current conditions');
+          const chart=main.querySelector('.outlook-chart');
+          if(chart&&!chart.getBoundingClientRect().height)landscapeErrors.push('Outlook chart must remain visible');
+          const map=main.querySelector('.pressure-map');
+          if(map&&map.getBoundingClientRect().height<250)landscapeErrors.push('Pressure map must use landscape space');
+        }
+        return {width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,scrollHeight:document.documentElement.scrollHeight,bad,landscapeErrors};
       })()` });
       const metrics = result?.value;
-      if (exceptionDetails || !metrics || metrics.scrollWidth > width + 2 || metrics.scrollHeight > height + 2 || metrics.bad.length) {
+      if (exceptionDetails || !metrics || metrics.scrollWidth > width + 2 || metrics.scrollHeight > height + 2 || metrics.bad.length || metrics.landscapeErrors.length) {
         failures++; console.error(`FAIL ${width}×${height} ${route}`, metrics || exceptionDetails);
       } else console.log(`PASS ${width}×${height} ${route}`);
     }
@@ -128,5 +138,5 @@ try {
   process.exitCode = 1;
 } finally {
   if (browser && browser.exitCode === null) browser.kill();
-  fs.rmSync(temporary, { recursive: true, force: true });
+  fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

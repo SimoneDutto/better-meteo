@@ -387,7 +387,19 @@ screen; climate comparison, 30-year change, charts, method and annual records us
 separate plain-link views. Annual records paginate ten years at a time, so growing
 archives cannot lengthen the screen. Short viewports prioritise the complete 15-day
 table over its duplicate temperature chart; narrow wind views sample less frequently.
+Landscape screens at least 760 CSS pixels wide and at most 700 pixels tall use a
+single header row, current conditions beside seven daily forecast rows, a visible
+outlook graph and a larger pressure map. This includes the Kindle's 800 × 600 viewport
+and uses CSS media queries without browser JavaScript.
 Weather data is never fetched by changing views.
+
+For Kindle orientation/layout troubleshooting, open `viewport.html` beneath the site
+base path. It displays the CSS orientation even without JavaScript; its optional ES5
+script shows viewport dimensions, screen dimensions and CSS feature support locally.
+It sends no diagnostic data and makes no weather requests. Report the window/document
+viewport values and feature results before forcing dimensions or rotation in CSS.
+Hardware screen dimensions and CSS pixels can differ. The dashboard does not depend
+on this diagnostic script.
 
 Plain links and a form; no browser JavaScript, automatic animation, external fonts, hover-only
 controls, live tiles or CDN calls. A 30-minute refresh and optional two-minute tab

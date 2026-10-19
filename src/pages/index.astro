@@ -44,7 +44,7 @@ const errors = status?.jobs?.filter((j:any)=>j.error&&(activeJobs.includes(j.nam
   <header><a href={link('forecast')} class="wordmark"><span class="brand-icon" aria-hidden="true">◒</span> better meteo<span class="brand-caption">A QUIETER LOOK AT THE WEATHER</span></a>{isStatic?<nav class="city-links" aria-label="City">{config.cities.map((c:any)=><a href={cityLink(c.id,tab)} aria-current={c.id===city.id?'location':undefined}>{c.name}</a>)}</nav>:<form method="get"><input type="hidden" name="tab" value={tab}/>{cycle&&<input type="hidden" name="cycle" value="1"/>}<label for="city" class="sr-only">Location</label><select id="city" name="city">{config.cities.map((c:any)=><option value={c.id} selected={c.id===city.id}>{c.name}</option>)}</select><button type="submit">Set city</button></form>}</header>
   <div class="location-line"><div><span class="eyebrow">YOUR REGIONAL WEATHER</span><h1>{city.name}<span class="coordinates">{city.latitude.toFixed(2)}° N · {city.longitude.toFixed(2)}° E</span></h1></div><div class="date-block"><strong>{isStatic?'As of ':''}{today}</strong><span>{age(updated)}{stale?' · STALE':''}</span></div></div>
   <nav class="tabs" aria-label="Weather views">{tabs.map((t,i)=><a href={link(t.id)} aria-current={tab===t.id?'page':undefined}><span class="tab-number">0{i+1}</span>{t.label}</a>)}</nav>
-  <main id="weather" class={`view-${tab}`}>
+  <main id="weather" class:list={[`view-${tab}`,{'has-stale-notice':stale}]}>
   {stale&&<p class="notice">Older saved data · check the dates. Updates respect the collection schedule.</p>}
   {tab==='forecast'&&<Forecast forecast={forecast} city={city}/>}
   {tab==='outlook'&&<Outlook ecmwf={ecmwf} gfs={gfs} city={city}/>}
