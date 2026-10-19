@@ -6,7 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 import urllib.error
 
-from collector.policy import Client, Deferred, NoRedirect, POLICIES, collector_lock
+from collector.policy import Client, Deferred, NoRedirect, POLICIES, collector_lock, decode_json
 
 URL = 'https://api.open-meteo.com/v1/forecast?latitude=45&longitude=7'
 
@@ -30,6 +30,36 @@ class PolicyTests(unittest.TestCase):
     def advance(self,seconds): self.clock += seconds
 
     def get(self,**kwargs): return self.client.get('openmeteo',URL,3600,1024,**kwargs)
+
+    def test_streaming_error_is_not_cached_or_retried_and_preserves_previous_body(self):
+        self.get(validator=decode_json)
+        key=self.client.db.execute('SELECT key FROM cache').fetchone()[0]
+        original=(self.client.root/key).read_bytes()
+        fetched=self.client.db.execute('SELECT fetched FROM cache').fetchone()[0]
+        self.advance(3601)
+        self.opener.side_effect=lambda *a,**k:Response(b'Unexpected error while streaming data: timeoutReached')
+        with self.assertRaisesRegex(ValueError,'timeoutReached'):
+            self.get(validator=decode_json)
+        self.assertEqual((self.client.root/key).read_bytes(),original)
+        self.assertEqual(self.client.db.execute('SELECT fetched FROM cache').fetchone()[0],fetched)
+        state=self.client.status()
+        self.assertGreaterEqual(state['providers'][0]['blocked'],self.clock+21600)
+        self.assertEqual(state['usage'][0]['requests'],2)
+        with self.assertRaises(Deferred):
+            self.get(validator=decode_json)
+        self.assertEqual(self.opener.call_count,2)
+
+    def test_legacy_invalid_cache_cannot_bypass_cooldown_and_is_replaced_when_allowed(self):
+        self.opener.side_effect=lambda *a,**k:Response(b'Unexpected error while streaming data: timeoutReached')
+        self.get()  # Simulate the old collector accepting HTTP 200 as success.
+        self.client.db.execute('UPDATE provider SET blocked=?',(self.clock+21600,))
+        self.client.db.commit()
+        with self.assertRaises(Deferred):self.get(validator=decode_json)
+        self.assertEqual(self.opener.call_count,1)
+        self.advance(21601)
+        self.opener.side_effect=lambda *a,**k:Response(b'{"ok":true}')
+        self.assertEqual(self.get(validator=decode_json),b'{"ok":true}')
+        self.assertEqual(self.opener.call_count,2)
 
     def test_repeated_views_of_fresh_cache_make_one_request(self):
         for _ in range(100): self.assertEqual(self.get(),b'{}')

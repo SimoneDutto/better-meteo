@@ -23,6 +23,19 @@ HOSTS = {
 class Deferred(RuntimeError):
     pass
 
+def decode_json(body):
+    """Reject streaming-error text before it can replace a valid cached response."""
+    try:
+        value = json.loads(body)
+    except (ValueError, UnicodeError) as exc:
+        explanation = ' '.join(body[:240].decode('utf-8',errors='replace').split())[:180]
+        raise ValueError(f'Open-Meteo returned invalid JSON ({len(body)} bytes): {explanation or "empty response"}') from exc
+    if not isinstance(value,(dict,list)):
+        raise ValueError('Open-Meteo returned an unexpected JSON type')
+    if isinstance(value,dict) and value.get('error') is True:
+        raise ValueError('Open-Meteo error: '+str(value.get('reason','unspecified error'))[:180])
+    return value
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None  # redirects need review; no hidden/unbudgeted requests
@@ -96,7 +109,7 @@ class Client:
         self.db.commit()
         return True
 
-    def get(self, provider, url, ttl, max_bytes, units=1, headers=None):
+    def get(self, provider, url, ttl, max_bytes, units=1, headers=None, validator=None):
         from urllib.parse import urlsplit
         parsed = urlsplit(url)
         if provider not in HOSTS or parsed.scheme != 'https' or parsed.hostname not in HOSTS[provider] or parsed.username or parsed.port not in (None,443):
@@ -107,8 +120,17 @@ class Client:
         key = hashlib.sha256((url+json.dumps(headers,sort_keys=True)).encode()).hexdigest()
         path = self.root/key
         cached = self.db.execute('SELECT fetched,etag,modified FROM cache WHERE key=?',(key,)).fetchone()
-        if cached and path.exists() and self.now()-cached[0] < ttl:
-            return path.read_bytes()
+        if cached and path.exists():
+            body = path.read_bytes()
+            if validator:
+                try:
+                    validator(body)
+                except ValueError:
+                    # Legacy poisoned cache: unusable, but never skip budgets,
+                    # cooldowns or job schedules to replace it.
+                    cached = None
+            if cached and self.now()-cached[0] < ttl:
+                return body
         policy = dict(POLICIES[provider])
         # Owner-approved, dated archive bootstrap only. Never changes defaults or
         # counters, and cannot affect forecasts, other hosts, or a later UTC day.
@@ -172,6 +194,7 @@ class Client:
             with response:
                 if response.code == 304:
                     body = path.read_bytes()
+                    if validator: validator(body)
                     received = 0
                 else:
                     if 'Range' in headers and response.code != 206:
@@ -190,6 +213,7 @@ class Client:
                     if 'Range' in headers and len(body)!=int(match[2])-int(match[1])+1:
                         raise RuntimeError('Incomplete byte-range download')
                     received = len(body)
+                    if validator: validator(body)
                     temp = path.with_suffix('.tmp')
                     temp.write_bytes(body)
                     temp.replace(path)

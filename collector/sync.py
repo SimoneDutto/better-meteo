@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlencode
 
-from .policy import Client, MIB, collector_lock
+from .policy import Client, MIB, collector_lock, decode_json
 from .weather import ensemble_days, rainfall_summary
 
 PROJECT = Path(__file__).resolve().parents[1]
@@ -21,7 +21,7 @@ def write_json(path, value):
     temporary.replace(path)
 
 def fetch_json(client, host, path, params, ttl, units=25):
-    return json.loads(client.get('openmeteo',f'https://{host}{path}?'+urlencode(params),ttl,8*MIB,units))
+    return decode_json(client.get('openmeteo',f'https://{host}{path}?'+urlencode(params),ttl,8*MIB,units,validator=decode_json))
 
 def save_city(city, section, value):
     write_json(DATA/'cities'/city['id']/f'{section}.json', {'updated':datetime.now(timezone.utc).isoformat(),'data':value})

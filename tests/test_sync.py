@@ -107,6 +107,27 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(len(self.calls),22)
         self.assertTrue(all('models=era5' in url.query for url in self.calls))
 
+    def test_streaming_timeout_stops_archive_without_caching_bad_body(self):
+        self.clock=self.client.now()
+        self.client.now=lambda:self.clock
+        self.client.sleep=self.advance
+        def transport(request,timeout):
+            url=urlsplit(request.full_url)
+            if parse_qs(url.query).get('start_date')==['1964-01-01']:
+                self.calls.append(url)
+                return Response(b'Unexpected error while streaming data: timeoutReached')
+            return self.open(request,timeout)
+        self.client.opener=transport
+        output=self.run_sync('climate-history')
+        self.assertIn('invalid JSON',output)
+        self.assertIn('timeoutReached',output)
+        self.assertEqual(len(self.calls),12)
+        self.assertFalse((self.root/'cities/turin/climate-archive-v1/1964-01-01_1966-12-31.json').exists())
+        for (key,) in self.client.db.execute('SELECT key FROM cache'):
+            self.assertNotIn(b'timeoutReached',(self.client.root/key).read_bytes())
+        self.run_sync('climate-history')
+        self.assertEqual(len(self.calls),12)
+
     def test_dated_archive_allowance_completes_once_without_changing_normal_limits(self):
         import time
         from collector.policy import Deferred, POLICIES

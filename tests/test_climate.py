@@ -45,6 +45,26 @@ class ClimateTests(unittest.TestCase):
         self.assertEqual(rain['available_value'],28)
         self.assertIsNone(result['days'][-1]['precipitation'])
 
+    def test_partial_difference_uses_identical_dates_not_a_full_window_normal(self):
+        series={}
+        for year in range(1991,2021):
+            series.update(series_between(date(year,10,1),date(year,10,15),precipitation=2))
+            # A large rainfall on the missing recent day must not enter the normal.
+            series[f'{year}-10-08']['precipitation']=1000
+        series.update(series_between(date(2026,10,1),date(2026,10,15),high=23,low=12,precipitation=1))
+        series['2026-10-08']={k:None for k in FIELDS}
+        result=summary(series,date(2026,10,15),date(2026,10,21),10,22)
+        metrics={m['key']:m for m in result['metrics']}
+        self.assertIsNone(metrics['precipitation']['actual'])
+        self.assertEqual(metrics['precipitation']['available_value'],14)
+        self.assertEqual(metrics['precipitation']['normal'],28)
+        self.assertEqual(metrics['precipitation']['difference'],-14)
+        self.assertEqual(metrics['precipitation']['comparison_days'],14)
+        self.assertEqual(metrics['high']['difference'],3)
+        self.assertEqual(metrics['low']['difference'],2)
+        self.assertEqual(metrics['snow']['difference'],0)
+        self.assertIsNone(metrics['snow']['percent'])
+
     def test_matching_window_anomalies_and_period_changes(self):
         series = series_between(date(1961,1,1), date(1990,12,31),high=18,low=8,precipitation=3)
         series.update(series_between(date(1991,1,1),date(2020,12,31)))

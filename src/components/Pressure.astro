@@ -1,6 +1,6 @@
 ---
 import Empty from './Empty.astro';
-import { date, number as n } from '../lib/data';
+import { date, media, number as n } from '../lib/data';
 const { pressure, city, selected, link, ecmwf, gfs } = Astro.props;
 const playing=Boolean(Astro.props.playing&&pressure?.data?.animation);
 const frames = pressure?.data?.frames || [];
@@ -11,7 +11,7 @@ const comparison = (ecmwf?.data||gfs?.data||[]).filter((d:any,i:number)=>i%3===0
   <div class="section-line"><div><span class="eyebrow">EUROPE & THE NORTH ATLANTIC</span><h2>Following the pressure pattern</h2></div><span>ECMWF IFS</span></div>
   {pressure.data.animation&&<p><a href={link('pressure',{motion:playing?'off':'on',step:String(frame.step)})}>{playing?'Pause · show static map':'▶ Play forecast loop'}</a></p>}
   <nav class="frames" aria-label="Forecast map date">{frames.map((f:any)=><a class:list={[{active:!playing&&f.step===frame.step}]} href={link('pressure',{step:String(f.step),motion:'off'})} aria-current={!playing&&f.step===frame.step?'date':undefined}>{f.day?`Day ${f.day}`:`+${f.step/24} days`}<small>{date(f.valid,city.timezone,{day:'numeric',month:'short'})}</small></a>)}</nav>
-  <img class="pressure-map" src={`/media/${playing?pressure.data.animation:frame.image}`} alt={playing?`Loop of ${frames.length} ECMWF pressure and temperature forecast snapshots; valid times are labelled in each frame`:`ECMWF forecast: 500 hPa height, sea-level pressure and 850 hPa temperature, valid ${frame.valid}`} width="1680" height={playing?936:840} />
+  <img class="pressure-map" src={media(playing?pressure.data.animation:frame.image)} alt={playing?`Loop of ${frames.length} ECMWF pressure and temperature forecast snapshots; valid times are labelled in each frame`:`ECMWF forecast: 500 hPa height, sea-level pressure and 850 hPa temperature, valid ${frame.valid}`} width="1680" height={playing?936:840} />
   <p class="muted">{pressure.data.provider||'Previously cached direct ECMWF data'} · {pressure.data.grid_degrees&&`${pressure.data.grid_degrees}° sampling grid · `}{playing?`${frames.length} forecast snapshots · valid UTC time in each frame`: `Valid: ${date(frame.valid,city.timezone,{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} local`}</p>
   {playing&&<p class="note">Daily 12:00 UTC forecasts; dates are in each frame. Pause for a static e-ink map.</p>}
   {pressure.data.unavailable?.length>0&&<p class="notice">Incomplete model coverage: {pressure.data.unavailable.map((f:any)=>`day ${f.day}`).join(', ')}. Missing snapshots are not filled or extrapolated.</p>}

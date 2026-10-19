@@ -6,7 +6,7 @@ HOST ?= 127.0.0.1
 PORT ?= 4321
 CITY ?= turin
 
-.PHONY: help sync plan status build start restart stop dashboard-status logs test test-layout climate-history
+.PHONY: help sync plan status build start restart stop dashboard-status logs test test-layout climate-history pages publish
 
 help:
 	@printf '%s\n' \
@@ -20,6 +20,8 @@ help:
 	  'make dashboard-status  Show dashboard process status' \
 	  'make logs              Follow dashboard logs (Ctrl-C exits the log viewer)' \
 	  'make build             Build the frontend without starting or syncing' \
+	  'make pages             Export a static GitHub Pages site offline' \
+	  'make publish           Sync, build, then commit/push generated files to gh-pages' \
 	  'make test              Run offline Python tests' \
 	  'make test-layout       Build and check viewport fit in installed Chrome (offline)' \
 	  'Options: CITY=turin HOST=127.0.0.1 PORT=4321 PYTHON=.venv/bin/python NODE=node'
@@ -56,9 +58,16 @@ logs:
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
+	$(NODE) --test tests/test_pages.mjs
 
 test-layout: build
 	$(NODE) scripts/check-layout.mjs
 
 climate-history:
 	$(PYTHON) -m collector climate-history --city "$(CITY)"
+
+pages:
+	$(PYTHON) scripts/publish_pages.py build --city "$(CITY)"
+
+publish:
+	$(PYTHON) scripts/publish_pages.py publish --city "$(CITY)"

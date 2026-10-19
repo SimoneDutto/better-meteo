@@ -67,6 +67,7 @@ def summary(series, end, today, completed, total_batches):
     for key in FIELDS:
         actual = aggregate(series, window, key)
         available = [series.get(d.isoformat(), {}).get(key) for d in window]
+        offsets = [i for i,d in enumerate(window) if series.get(d.isoformat(),{}).get(key) is not None]
         available = [v for v in available if v is not None]
         partial = (statistics.mean(available) if key in ('high', 'low') else sum(available)) if available else None
         reference = []
@@ -76,15 +77,22 @@ def summary(series, end, today, completed, total_batches):
                 historic_end = end.replace(year=year)
             except ValueError:
                 historic_end = date(year, 2, 28)
-            value = aggregate(series, dates(historic_end-timedelta(days=14), historic_end), key)
+            # Partial comparisons use precisely the same available-day mask in
+            # every year. Never compare a 14-day total with a 15-day normal.
+            historic_start = historic_end-timedelta(days=14)
+            selected = offsets if available else range(15)
+            value = aggregate(series, [historic_start+timedelta(days=i) for i in selected], key)
             if value is not None:
                 reference.append(value)
         # Require 24/30 complete windows; never treat missing days as dry days.
         normal = statistics.mean(reference) if len(reference) >= 24 else None
+        comparable = actual if actual is not None else partial
+        reason = 'No recent data' if comparable is None else 'Reference needs 24 complete years' if normal is None else None
         metrics.append({'key': key, 'unit': UNITS[key], 'actual': actual, 'normal': normal,
                         'available_days': len(available), 'available_value': partial,
-                        'years': len(reference), 'difference': actual-normal if actual is not None and normal is not None else None,
-                        'percent': 100*(actual/normal-1) if actual is not None and normal else None,
+                        'comparison_days': len(available), 'difference_reason': reason,
+                        'years': len(reference), 'difference': comparable-normal if comparable is not None and normal is not None else None,
+                        'percent': 100*(comparable/normal-1) if comparable is not None and normal else None,
                         'p10': percentile(reference, .1) if normal is not None else None,
                         'p90': percentile(reference, .9) if normal is not None else None})
     annual = []

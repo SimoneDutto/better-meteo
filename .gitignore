@@ -6,3 +6,6 @@ __pycache__/
 *.pyc
 data/*
 !data/.gitkeep
+
+dist-pages/
+.meteo-pages-*/

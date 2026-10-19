@@ -21,3 +21,5 @@ table{border-collapse:collapse;width:100%;font-size:12px;line-height:1.25}th,td{
 
 .climate-deltas{display:flex;gap:12px;border-top:1px solid #aaa;border-bottom:1px solid #aaa;padding:8px 0}.climate-deltas>div{flex:1}.climate-deltas span{display:block;font-size:11px}.climate-deltas strong{font-size:23px;font-weight:500}
 @media(max-height:700px){.climate-deltas{padding:4px 0}.climate-deltas strong{font-size:19px}.subtabs a{font-size:9px}}
+
+.city-links{display:flex;gap:12px;font-size:12px}.city-links a[aria-current]{font-weight:bold}.city-links a{white-space:nowrap}

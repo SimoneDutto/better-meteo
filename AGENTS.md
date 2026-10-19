@@ -14,3 +14,5 @@
 - Download fixed historical climate archives only through the explicit `climate-history` command. Normal sync updates recent weather and reads saved history; it must never fetch historical batches.
 
 - Owner-approved exception for the Turin archive bootstrap on 2026-10-19 UTC only: the dated local permit may allow `climate-history` up to 40 total HTTP attempts/day and 2,500 quota units/day/hour for ERA5 history through 2025. Normal sync caps, minute/month/byte limits, schedules and cooldowns remain unchanged. Never reset counters; expire the permit by date or completion.
+
+- GitHub Pages exports must remain static, with real paths for tabs/cities/date selections and no required browser JavaScript. Publish only generated HTML/CSS/current media to `gh-pages`; keep raw caches, historical archives and quota records local. Normal Pages builds/tests must be offline; live sync/push belongs only in explicit publication. Use fast-forward pushes without touching the source worktree.

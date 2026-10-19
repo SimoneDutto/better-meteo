@@ -71,6 +71,13 @@ are used when supplied. Bytes are reserved before downloads; failed downloads re
 their reservation. Old raw responses are pruned after 45 days; completed old images
 after seven days. Current dashboard files and policy records are preserved.
 
+JSON responses are validated before entering the shared HTTP cache. A streamed HTTP
+200 response containing timeout text or truncated JSON is treated as a failed attempt:
+its explanation is retained, existing valid data stays intact, and the normal provider
+cooldown applies. No automatic retry is made. Invalid responses cached by an older
+collector are not reusable; replacement still honours existing job schedules, budgets
+and cooldowns.
+
 HTTP errors include Open-Meteo's JSON explanation when available, read from at most
 4 KiB of the original response without another request. A `400` means the request
 was rejected as invalid; it is distinct from a `429` rate-limit response. Both retain
@@ -149,6 +156,85 @@ retired ECMWF portal. This migration does not reset either provider's saved hist
 Schedule `sync` hourly from cron/systemd; the jobs still enforce 6/12/24-hour intervals.
 Starting the web server alone never starts collection.
 
+### Publish to GitHub Pages from this machine
+
+The hosted dashboard needs **no Node/Python backend**. A local export renders all
+configured cities, tabs, pressure dates/loops, climate views, paginated records and
+rotation links into plain HTML. CSS and only the current referenced map/GIF/PNG files
+are copied alongside it. There is no required browser JavaScript, server routing or
+provider request from the published site. Absolute source timestamps replace relative
+“hours ago” labels, which would become misleading on a static snapshot.
+
+With this repository's `origin` configured on GitHub:
+
+```sh
+make pages       # offline build/export only; output is dist-pages/
+make publish     # sync permitted recent weather, render PNG, build, commit and push
+```
+
+`make publish` updates **only `gh-pages`**, using an isolated temporary checkout.
+It does not stage source changes, switch your branch, commit local caches, publish
+historical archive files, upload the policy database, or reset any collector budget.
+Ordinary fast-forward pushes preserve deployment history; concurrent remote changes
+cause a failure instead of a forced overwrite. The command checks Git identity and
+remote access before syncing. If GitHub is unreachable or authentication is missing,
+it stops before weather requests. A sync that retains older data can still publish
+it with its actual source timestamps and collection status. Building/exporting alone
+always stays offline. The generated export validates every local page/asset/rotation
+link before replacing the previous complete export.
+
+On the **first successful push**, open the repository's **Settings → Pages**:
+
+1. Source: **Deploy from a branch**.
+2. Branch: **gh-pages**.
+3. Folder: **/ (root)**, then Save.
+
+The site will be available at `https://<user>.github.io/<repository>/` after GitHub's
+deployment finishes. No custom workflow or GitHub-hosted weather collector is needed.
+A `.nojekyll` file lets GitHub serve Astro's `_astro` CSS directory unchanged.
+Subsequent mornings require only `make publish`; the normal collector still honours
+all caches, schedules, budgets and cooldowns. Historical downloads stay separate.
+`CITY=...` selects the city to sync; all configured cities' cached views are exported.
+
+The repository name determines the base URL automatically. User sites named
+`<user>.github.io` use `/`; project sites use `/<repository>/`. Override for a custom
+domain with `PAGES_BASE=/ make publish` (DNS/Pages domain configuration is separate).
+For an offline root-path preview:
+
+```sh
+PAGES_BASE=/ make pages
+python3 -m http.server 8080 --directory dist-pages
+# Open http://localhost:8080/
+```
+
+The existing `make start` / `make restart` commands still run the local server and
+read fresh caches directly. The exported site changes only when you publish.
+The PNG reader option is published at `/media/<city>-dashboard.png` beneath the same
+base path. Builds include only the current maps, not superseded generated images.
+
+GitHub credentials must already work with Git: normally SSH for `git@github.com:...`,
+or your existing HTTPS credential helper. The publisher does not store a token or
+create an account. GitHub Pages is free from a **public** repository; directly
+publishing from a private repository needs an eligible paid plan. To keep source
+private on GitHub Free, create a separate public deployment repository and run:
+
+```sh
+git remote add pages git@github.com:YOUR_USER/weather-site.git
+PAGES_REMOTE=pages make publish
+```
+
+Only generated frontend files go to that repository. The base path follows the
+chosen deployment repository. Published HTML, CSS and images are visible to visitors,
+even when the source repository is private.
+
+Checked against GitHub's [publishing-source documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site)
+and [Pages limits](https://docs.github.com/en/pages/getting-started-with-github-pages/github-pages-limits):
+1 GB published site, 100 GB/month soft bandwidth limit, 10 builds/hour soft limit for
+branch publishing. The current export is approximately 8.4 MiB; one morning push is
+well below the build-frequency limit. Generated images also accumulate in Git commit
+history; the script never rewrites history automatically. Raw HTTP caches and the
+historical archive remain local and should be backed up separately.
+
 ### Docker
 
 ```sh
@@ -224,7 +310,10 @@ and fixed-offset changes across multi-year requests. The recent request ends
 five-day publication delay. A 28-day buffer allows the collector to select the latest
 complete 15-day window when publication is later than expected. If there is no
 complete window, available values are explicitly labelled partial with a day count;
-no full-period anomaly is calculated. It deliberately differs from the Rainfall tab's more
+no full-period anomaly is calculated. Partial differences instead compare the available
+dates with exactly the same date offsets in every reference year, per measure. Both
+temperature means and precipitation totals therefore use matching coverage; the day
+count remains visible and annual statistics still require complete years. It deliberately differs from the Rainfall tab's more
 recent ECMWF IFS history. Matching historical windows end on the same month/day and
 run backwards 15 days; 29 February maps to 28 February in non-leap years. The start
 can therefore shift one day around leap years. Recent reanalysis may be preliminary.
@@ -324,6 +413,7 @@ map collection rebuilds the GIF from the same PNGs, without increasing API usage
 
 ```sh
 python3 -m unittest discover -s tests -v
+node tests/test_pages.mjs
 npm run build
 # Optional visual layout check with locally installed Google Chrome (no downloads):
 make test-layout
