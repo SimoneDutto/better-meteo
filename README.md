@@ -346,10 +346,14 @@ one model and five variables. JSON is expected to be under 1 MiB per block (an
 estimate); the enforced per-request ceiling/reservation remains 8 MiB. All existing
 request/byte/quota budgets, locks, schedules and provider cooldowns remain active.
 The command spaces requests and waits when necessary before a rolling-minute limit;
-it stops at the first failure, cooldown, scheduled deferral or exhausted budget.
-There are no error retries or forced bypasses. A failed/deferred block retains a
-24-hour job interval. Another explicit invocation can resume after it is eligible,
-without downloading completed blocks again. With a 1,000-unit daily cap, the complete
+it stops at the first failure, required provider pause, scheduled deferral or exhausted budget.
+There are no automatic error retries. An explicit `make climate-history` may retry a
+failed batch immediately, without its 24-hour failure schedule or the generic local
+failure cooldown. The collector still enforces request spacing, all shared budgets,
+HTTP 429 pauses and explicit Retry-After responses. Each invocation attempts a failed
+batch only once and skips completed blocks. Ordinary sync keeps its existing schedules
+and generic failure cooldowns. Interrupted jobs without a recorded failure retain their
+reserved interval; unknown legacy provider pauses are preserved conservatively. With a 1,000-unit daily cap, the complete
 archive necessarily spans multiple UTC days and competes with ordinary weather jobs.
 
 For the owner-approved bootstrap on **19 October 2026 only**, the local
@@ -359,7 +363,7 @@ only to ERA5 archive requests ending by 31 December 2025; it cannot affect norma
 sync or other providers. It expires at the end of that UTC date and is marked
 completed when the archive is full. No command-line force/override flag exists.
 The 400-unit/minute, 40 MiB/day and 30,000-unit/month limits remain unchanged,
-as do cooldowns, Retry-After and per-batch failed-attempt schedules. Counters are
+as do rate-limit pauses and Retry-After. Manual archive retries follow the rules above. Counters are
 never reset. Ordinary sync retains its 1,000-unit/24-attempt daily caps, so it may
 pause for the remainder of the UTC day once the bootstrap uses more than those
 amounts. This is a dated bootstrap allowance, not a permanent policy increase.
@@ -391,6 +395,10 @@ Landscape screens at least 760 CSS pixels wide and at most 700 pixels tall use a
 single header row, current conditions beside seven daily forecast rows, a visible
 outlook graph and a larger pressure map. This includes the Kindle's 800 × 600 viewport
 and uses CSS media queries without browser JavaScript.
+For older Kindle browsers, use the footer's “Reader landscape” link and bookmark
+that page. The explicit `/landscape/` routes preserve the choice across tabs and
+use a compatibility stylesheet without Grid or orientation detection. “Auto layout”
+returns to the responsive layout. Both modes read the same saved weather files.
 Weather data is never fetched by changing views.
 
 For Kindle orientation/layout troubleshooting, open `viewport.html` beneath the site

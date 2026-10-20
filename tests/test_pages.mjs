@@ -29,6 +29,7 @@ test('static links handle project prefixes, climate pagination, animation and ro
   assert.equal(pageUrl('/weather/',{city:'turin',tab:'climate',view:'records',page:'2',cycle:'1'}),'/weather/turin/climate/records/page-2/rotate/');
   assert.equal(pageUrl('/',{city:'turin',tab:'pressure',step:'36',motion:'on'}),'/turin/pressure/at-36/loop/');
   assert.equal(pageUrl('/weather',{city:'turin',tab:'climate',view:'overview'}),'/weather/turin/climate/');
+  assert.equal(pageUrl('/weather/',{city:'turin',tab:'pressure',step:'36',layout:'landscape',cycle:'1'}),'/weather/turin/pressure/at-36/landscape/rotate/');
   assert.throws(()=>basePath('/../secrets/'));
   assert.throws(()=>pagePath({city:'../secrets',tab:'forecast'}));
 });
@@ -41,6 +42,8 @@ test('all cities and complete archive record pages have unique URLs',()=>{
     assert.ok(paths.includes(`${city}/climate/records/page-6/`));
     assert.ok(paths.includes(`${city}/pressure/at-36/loop/rotate/`));
     assert.ok(paths.includes(`${city}/sources/`));
+    assert.ok(paths.includes(`${city}/forecast/landscape/`));
+    assert.ok(paths.includes(`${city}/climate/records/page-6/landscape/rotate/`));
   }
 });
 
@@ -66,6 +69,12 @@ test('offline export resolves every link and keeps private caches out of the sit
     assert.ok(!climate.includes('<form'));
     assert.ok(!climate.includes('?tab='));
     assert.ok(fs.existsSync(path.join(output,`${city}/pressure/at-36/loop/rotate/index.html`)));
+    const reader=fs.readFileSync(path.join(output,`${city}/forecast/landscape/index.html`),'utf8');
+    assert.ok(reader.includes(`/weather-test/${city}/wind/landscape/`),'Reader mode persists across tabs');
+    assert.ok(reader.includes('Auto layout'));
+    assert.ok(!reader.includes('<script'));
+    const styles=[...reader.matchAll(/<link[^>]*href="([^"]+\.css)"/g)].map(m=>m[1]);
+    assert.ok(styles.some(file=>fs.readFileSync(path.join(output,file.slice('/weather-test/'.length)),'utf8').includes('table-cell')),'Reader compatibility stylesheet is exported');
     const records=fs.readFileSync(path.join(output,`${city}/climate/records/page-0/index.html`),'utf8');
     assert.equal([...records.matchAll(/<tr>/g)].length,11);
     assert.ok(fs.existsSync(path.join(output,'media',`${city}-dashboard.png`)));

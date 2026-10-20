@@ -29,6 +29,46 @@ class PolicyTests(unittest.TestCase):
 
     def advance(self,seconds): self.clock += seconds
 
+    def test_manual_archive_can_retry_transient_failure_with_spacing_and_shared_quota(self):
+        url='https://archive-api.open-meteo.com/v1/archive?models=era5'
+        self.opener.side_effect=[Response(b'Unexpected error while streaming data: timeoutReached'),Response()]
+        with self.client.manual_history():
+            with self.assertRaises(ValueError):
+                self.client.get('openmeteo',url,0,1024,units=79,validator=decode_json)
+        with self.assertRaises(Deferred): self.get()
+        with self.client.manual_history():
+            # The manual exception cannot apply to forecast requests.
+            with self.assertRaises(Deferred): self.get()
+            self.assertEqual(self.client.get('openmeteo',url,0,1024,units=79,validator=decode_json),b'{}')
+        self.assertEqual(self.opener.call_count,2)
+        self.assertEqual(self.client.reserved_units,158)
+        self.assertEqual(self.clock,1792400005.)
+        day=self.client.status()['usage'][0]['day']
+        self.client.db.execute('UPDATE usage SET units=1000 WHERE day=?',(day,))
+        self.client.db.commit()
+        with self.client.manual_history():
+            with self.assertRaisesRegex(Deferred,'daily'):
+                self.client.get('openmeteo',url+'&batch=2',0,1024,units=79)
+        self.assertEqual(self.opener.call_count,2)
+
+    def test_manual_archive_respects_persisted_rate_limit_and_retry_after(self):
+        url='https://archive-api.open-meteo.com/v1/archive?models=era5'
+        for code,headers in [(429,Message()),(503,Message())]:
+            with self.subTest(code=code):
+                self.advance(21601)
+                if code==503: headers['Retry-After']='43200'
+                self.opener.side_effect=urllib.error.HTTPError(url,code,'Unavailable',headers,io.BytesIO(b'{}'))
+                with self.client.manual_history():
+                    with self.assertRaises(urllib.error.HTTPError): self.client.get('openmeteo',url,0,1024)
+                other=Client(self.temp.name,now=lambda:self.clock,opener=self.opener)
+                try:
+                    before=self.opener.call_count
+                    with other.manual_history():
+                        with self.assertRaises(Deferred): other.get('openmeteo',url,0,1024)
+                    self.assertEqual(self.opener.call_count,before)
+                finally:
+                    other.db.close()
+
     def get(self,**kwargs): return self.client.get('openmeteo',URL,3600,1024,**kwargs)
 
     def test_streaming_error_is_not_cached_or_retried_and_preserves_previous_body(self):

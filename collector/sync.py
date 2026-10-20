@@ -80,7 +80,7 @@ def print_plan(config):
     print(f'Maps: {len(maps["points"])} points at {maps["spacing"]}°, {map_requests} requests / 12h, {maps["total_units"]} units per collection.')
     print('Forecast + two ensembles: 3 requests / 6h, 100 reserved units. Rainfall: 1 request / 24h, 50 reserved units.')
     print('Climate sync: recent ERA5 only, 1 request / 24h, 2 units. Historical files are read locally, never downloaded by sync.')
-    print('Explicit climate-history command: missing historical batches only, up to 79 units each; 1991–2020 first. Shares all budgets/cooldowns; no account/key needed.')
+    print('Explicit climate-history command: missing historical batches only, up to 79 units each; 1991–2020 first. Shares all budgets, request spacing and rate-limit pauses; no account/key needed.')
     print('Application caps: 24 HTTP attempts/day; 400 units/minute, 1,500/hour, 1,000/day, 30,000/month; 40 MiB/day.')
     print('Open-Meteo published free allowance: 600 counted calls/minute, 5,000/hour, 10,000/day, 300,000/month; no uptime guarantee.')
     print('Reserved units are conservative estimates, not upstream-reported usage. Extra cities share these same budgets.')
@@ -95,7 +95,7 @@ def print_status(client):
     print(f'Month {state["month"]}: {state["monthly_units"]:g}/30000 reserved quota units. These are estimates, not an upstream usage report.')
     for provider in state['providers']:
         if provider['name']=='openmeteo' and provider['blocked']>client.now():
-            print('Open-Meteo paused until '+time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(provider['blocked'])))
+            print('Open-Meteo ordinary sync paused until '+time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(provider['blocked'])))
     blocked=max((p['blocked'] for p in state['providers'] if p['name']=='openmeteo'),default=0)
     for job in state['jobs']:
         if job['name']=='pressure' or job['name'].endswith(':rainfall'):
@@ -105,6 +105,10 @@ def print_status(client):
         eligible=max(job['due'],blocked)
         due=time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(eligible))
         schedule=f'waiting until {due}' if eligible>client.now() else 'eligible on the next sync'
+        if ':climate-history:era5:' in job['name'] and job['error']:
+            pause=client.blocked_until('openmeteo',manual_archive=True)
+            schedule=('manual retry available with make climate-history; existing budgets apply' if pause<=client.now()
+                      else 'provider pause until '+time.strftime('%Y-%m-%d %H:%M UTC',time.gmtime(pause)))
         print(f'{label}: {schedule}')
         if job['error']:
             print(f'  Saved failure from the previous attempt: {job["error"]}. This status line makes no request; it remains until a successful update.')
@@ -160,7 +164,7 @@ def main():
                          and permit.get('city') == city['id'] and not permit.get('completed',False))
             if permitted:
                 client.archive_allowance = permit
-                print('Owner-approved archive allowance for today only: 40 total HTTP attempts/day, 2,500 units/day and 2,500/hour. Normal sync retains its original caps. All usage remains counted; cooldowns and Retry-After still apply.')
+                print('Owner-approved archive allowance for today only: 40 total HTTP attempts/day, 2,500 units/day and 2,500/hour. Normal sync retains its original caps. All usage remains counted; rate-limit pauses and Retry-After still apply.')
             try:
                 remaining = download_history(client,city,DATA,fetch_json,write_json,datetime.now(ZoneInfo(city['timezone'])).date())
                 if permitted and remaining == 0:

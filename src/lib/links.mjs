@@ -23,6 +23,7 @@ export function pagePath(state) {
     parts.push(state.view);
     if (state.view === 'records') parts.push(`page-${Math.max(0,Number.parseInt(state.page || '0',10) || 0)}`);
   }
+  if (state.layout === 'landscape') parts.push('landscape');
   if (state.cycle === '1') parts.push('rotate');
   return parts.join('/') + '/';
 }
@@ -42,5 +43,5 @@ export function pageStates(config, pressure, readCity) {
     const years = (readCity(city.id, 'climate')?.data?.annual || []).filter(r=>r.high!=null||r.low!=null||r.precipitation!=null).length;
     for (let page=0;page<Math.max(1,Math.ceil(years/10));page++) states.push({...common,tab:'climate',view:'records',page:String(page)});
   }
-  return states.flatMap(state=>[state,{...state,cycle:'1'}]);
+  return states.flatMap(state=>[state,{...state,cycle:'1'},{...state,layout:'landscape'},{...state,layout:'landscape',cycle:'1'}]);
 }

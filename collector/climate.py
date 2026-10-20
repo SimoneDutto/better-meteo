@@ -169,8 +169,16 @@ def collect(client, city, data, fetch, write, save, today):
 
 
 def download_history(client, city, data, fetch, write, today):
+    """One explicit invocation; transient failures are retryable on the next one."""
+    with client.manual_history():
+        return _download_history(client, city, data, fetch, write, today)
+
+
+def _download_history(client, city, data, fetch, write, today):
     """Explicit one-time archive fill. Existing files, limits and failures stop requests."""
     import json
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
     from .policy import POLICIES
     root, identity = archive_root(city, data, write)
     missing = [(a, b) for a, b in batches(today) if not (root/f'{a}_{b}.json').exists()]
@@ -179,6 +187,18 @@ def download_history(client, city, data, fetch, write, today):
     previous = json.loads(climate_path.read_text()) if climate_path.exists() else {}
     try:
         for start, end in missing:
+            name = f'{city["id"]}:climate-history:era5:{start}:{end}'
+            job = client.db.execute('SELECT due,error FROM jobs WHERE name=?',(name,)).fetchone()
+            eligible = max(job[0] if job and not job[1] else 0, client.blocked_until('openmeteo',manual_archive=True))
+            if eligible > client.now():
+                utc = datetime.fromtimestamp(eligible,timezone.utc)
+                local = utc.astimezone(ZoneInfo(city['timezone']))
+                print(f'Climate archive paused before {start} through {end}: next eligible '
+                      f'{utc:%Y-%m-%d %H:%M UTC} ({local:%Y-%m-%d %H:%M} {city["timezone"]}).')
+                if job and job[1]:
+                    print(f'Saved failure, not a new request: {job[1]}')
+                print('No request sent. Run make climate-history after that time; saved batches are skipped. Budgets still apply.')
+                break
             units = reservation(start, end)
             # Wait BEFORE attempting a request if the rolling minute is full.
             # This is pacing, not retrying an error; the Client still enforces every cap.
@@ -199,7 +219,7 @@ def download_history(client, city, data, fetch, write, today):
                 if any(v is None for row in values.values() for v in row.values()):
                     raise ValueError('Historical batch has missing values; previous archive retained')
                 write(root/f'{a}_{b}.json', values)
-            if not client.run(f'{city["id"]}:climate-history:era5:{start}:{end}',86400,download):
+            if not client.run(name,86400,download,retry_failed=True):
                 print('Climate archive stopped at the first deferred/failed batch; no further requests sent.')
                 break
             print(f'Climate archive saved: {start} through {end}')

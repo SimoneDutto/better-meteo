@@ -5,9 +5,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from contextlib import redirect_stdout
+import io
 
-from collector.climate import FIELDS, UNITS, aggregate, batches, collect, dates, parse_daily, reservation, summary, window_end
+from collector.climate import FIELDS, UNITS, aggregate, batches, collect, dates, download_history, parse_daily, reservation, summary, window_end
 
 
 def series_between(start, end, high=20, low=10, precipitation=2, rain=1, snow=0):
@@ -22,6 +24,58 @@ def payload(start, end):
 
 
 class ClimateTests(unittest.TestCase):
+    def test_required_pause_explains_wait_without_fetching_or_extending_schedule(self):
+        from collector.policy import Client
+        from collector.sync import write_json
+        from datetime import datetime, timezone
+        now=datetime(2026,10,19,13,tzinfo=timezone.utc).timestamp()
+        due=datetime(2026,10,20,11,36,tzinfo=timezone.utc).timestamp()
+        city=dict(id='turin',latitude=45.07,longitude=7.68,timezone='Europe/Rome')
+        start,end=date(1964,1,1),date(1964,1,2)
+        name=f'turin:climate-history:era5:{start}:{end}'
+        with tempfile.TemporaryDirectory() as temp, patch('collector.climate.batches',return_value=[(start,end)]):
+            root=Path(temp);fetch=Mock(return_value=payload(start,end));sleep=Mock()
+            client=Client(root/'http',now=lambda:now,sleep=sleep)
+            try:
+                client.db.execute('INSERT INTO jobs VALUES(?,?,NULL,?)',(name,due,'timeoutReached'))
+                client.db.execute('INSERT INTO provider VALUES(?,?,?,?)',('openmeteo',now,due,'HTTP Error 429'))
+                client.db.execute('INSERT INTO provider_required_pause VALUES(?,?)',('openmeteo',due))
+                client.db.commit()
+                output=io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(download_history(client,city,root,fetch,write_json,date(2026,10,19)),1)
+                fetch.assert_not_called();sleep.assert_not_called()
+                self.assertIn('2026-10-20 11:36 UTC',output.getvalue())
+                self.assertIn('2026-10-20 13:36 Europe/Rome',output.getvalue())
+                self.assertIn('Saved failure, not a new request: timeoutReached',output.getvalue())
+                self.assertEqual(client.db.execute('SELECT due FROM jobs WHERE name=?',(name,)).fetchone()[0],due)
+                now=due+1
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(download_history(client,city,root,fetch,write_json,date(2026,10,20)),0)
+                    download_history(client,city,root,fetch,write_json,date(2026,10,20))
+                self.assertEqual(fetch.call_count,1,'Completed archive must never be fetched again')
+            finally:
+                client.db.close()
+
+    def test_manual_archive_retries_failed_batch_once_and_keeps_saved_batches(self):
+        from collector.policy import Client
+        from collector.sync import write_json
+        city=dict(id='turin',latitude=45.07,longitude=7.68,timezone='Europe/Rome')
+        start,end=date(1964,1,1),date(1964,1,2)
+        with tempfile.TemporaryDirectory() as temp, patch('collector.climate.batches',return_value=[(start,end)]):
+            root=Path(temp);client=Client(root/'http',now=lambda:1792480000)
+            fetch=Mock(side_effect=[ValueError('timeoutReached'),payload(start,end)])
+            try:
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(download_history(client,city,root,fetch,write_json,date(2026,10,20)),1)
+                    self.assertEqual(fetch.call_count,1,'Failure must stop this invocation without automatic retries')
+                    self.assertEqual(download_history(client,city,root,fetch,write_json,date(2026,10,20)),0)
+                    download_history(client,city,root,fetch,write_json,date(2026,10,20))
+                self.assertEqual(fetch.call_count,2,'Only another manual invocation retries; saved batches are skipped')
+                self.assertFalse(client.manual_archive_retry)
+            finally:
+                client.db.close()
+
     def test_publication_delay_chooses_latest_complete_window(self):
         target=date(2026,10,13)
         series=series_between(date(2026,9,16),target)

@@ -29,7 +29,8 @@ try {
   const { manifest } = await import(`../dist/server/${manifestFile}`);
   const { NodeApp } = await import('astro/app/node');
   const app = new NodeApp(manifest);
-  const css = fs.readFileSync('src/styles/global.css', 'utf8');
+  const readerCss = fs.readFileSync('src/styles/reader-landscape.css', 'utf8');
+  const css = fs.readFileSync('src/styles/global.css', 'utf8') + '\n@media screen and (min-width:760px) and (max-height:700px){' + readerCss + '}';
   const routes = ['forecast', 'outlook', 'rainfall', 'wind', 'sources', 'pressure', 'pressure&motion=on', 'climate', ...['periods', 'charts', 'records', 'method'].map(v => `climate&view=${v}`)];
   const documents = [];
   async function saveRoute(route, prefix = '') {
@@ -38,12 +39,13 @@ try {
     let html = await response.text();
     if (html.includes('<script')) throw Error(`Unexpected browser JavaScript in ${route}`);
     html = html.replace(/<link\b[^>]*rel="stylesheet"[^>]*>/g, '').replace(/<meta\b[^>]*http-equiv="refresh"[^>]*>/g, '');
-    html = html.replace('</head>', `<style>${css}</style></head>`).replaceAll('src="/media/', `src="file://${originalData}/media/`);
+    html = html.replace('</head>', `<style>${css}${route.includes('layout=landscape')?readerCss:''}</style></head>`).replaceAll('src="/media/', `src="file://${originalData}/media/`);
     const file = path.join(temporary, `${prefix}${documents.length}.html`);
     fs.writeFileSync(file, html);
     documents.push({ route: prefix + route, file });
   }
   for (const route of routes) await saveRoute(route);
+  for (const route of routes) await saveRoute(route+'&layout=landscape');
   // Full archives must fit too, not just today's partly collected climate cache.
   const climatePath = path.join(localData, `cities/${city.id}/climate.json`);
   if (fs.existsSync(climatePath)) {
@@ -98,6 +100,7 @@ try {
   for (const [width, height] of [[600, 800], [800, 600], [1366, 768], [1920, 1080]]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
     for (const { route, file } of documents) {
+      if (route.includes('layout=landscape') && (width!==800 || height!==600)) continue;
       const loaded = new Promise((resolve, reject) => {
         const timer = setTimeout(() => { events.delete(`${sessionId}:Page.loadEventFired`); reject(Error('Page load timed out')); }, 15000);
         events.set(`${sessionId}:Page.loadEventFired`, () => { clearTimeout(timer); resolve(); });

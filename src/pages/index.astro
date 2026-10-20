@@ -1,5 +1,6 @@
 ---
-import '../styles/global.css';
+import globalStyles from '../styles/global.css?url';
+import readerStyles from '../styles/reader-landscape.css?url';
 import Forecast from '../components/Forecast.astro';
 import Outlook from '../components/Outlook.astro';
 import Pressure from '../components/Pressure.astro';
@@ -16,8 +17,9 @@ const tab = requested==='sources' ? 'sources' : tabs.find(t=>t.id===requested)?.
 const city = config.cities.find((c:any)=>c.id===Astro.url.searchParams.get('city')) || config.cities[0];
 const cycle = Astro.url.searchParams.get('cycle')==='1';
 const isStatic = process.env.BETTER_METEO_STATIC==='1';
+const landscape = Astro.url.searchParams.get('layout')==='landscape';
 const cityLink = (id:string,target:string,extra:Record<string,string>={})=>{
-  const state={city:id,tab:target,...(cycle?{cycle:'1'}:{}),...extra};
+  const state={city:id,tab:target,...(cycle?{cycle:'1'}:{}),...(landscape?{layout:'landscape'}:{}),...extra};
   return isStatic ? pageUrl(process.env.PAGES_BASE||'/',state) : '/?'+new URLSearchParams(state).toString();
 };
 const link = (target:string,extra:Record<string,string>={})=>cityLink(city.id,target,extra);
@@ -39,7 +41,7 @@ const today = date(new Date().toISOString(),city.timezone,{weekday:'long',day:'n
 const activeJobs=[`${city.id}:forecast`,`${city.id}:ecmwf_ifs025_ensemble`,`${city.id}:ncep_gefs_seamless`,`${city.id}:rainfall:openmeteo:v1`,'pressure:openmeteo:v1',`${city.id}:climate:era5:v1`];
 const errors = status?.jobs?.filter((j:any)=>j.error&&(activeJobs.includes(j.name)||j.name.startsWith(`${city.id}:climate-history:era5:`)))||[];
 ---
-<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content="A quiet, regional weather dashboard designed for e-ink."/><meta http-equiv="refresh" content={refresh}/><title>{city.name} weather · Better Meteo</title></head>
+<!doctype html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="description" content="A quiet, regional weather dashboard designed for e-ink."/><meta http-equiv="refresh" content={refresh}/><link rel="stylesheet" href={globalStyles}/><link rel="stylesheet" href={readerStyles} media={landscape?'all':'screen and (min-width: 760px) and (max-height: 700px)'}/><title>{city.name} weather · Better Meteo</title></head>
 <body><div class="dashboard">
   <header><a href={link('forecast')} class="wordmark"><span class="brand-icon" aria-hidden="true">◒</span> better meteo<span class="brand-caption">A QUIETER LOOK AT THE WEATHER</span></a>{isStatic?<nav class="city-links" aria-label="City">{config.cities.map((c:any)=><a href={cityLink(c.id,tab)} aria-current={c.id===city.id?'location':undefined}>{c.name}</a>)}</nav>:<form method="get"><input type="hidden" name="tab" value={tab}/>{cycle&&<input type="hidden" name="cycle" value="1"/>}<label for="city" class="sr-only">Location</label><select id="city" name="city">{config.cities.map((c:any)=><option value={c.id} selected={c.id===city.id}>{c.name}</option>)}</select><button type="submit">Set city</button></form>}</header>
   <div class="location-line"><div><span class="eyebrow">YOUR REGIONAL WEATHER</span><h1>{city.name}<span class="coordinates">{city.latitude.toFixed(2)}° N · {city.longitude.toFixed(2)}° E</span></h1></div><div class="date-block"><strong>{isStatic?'As of ':''}{today}</strong><span>{age(updated)}{stale?' · STALE':''}</span></div></div>
@@ -54,5 +56,5 @@ const errors = status?.jobs?.filter((j:any)=>j.error&&(activeJobs.includes(j.nam
   {tab==='climate'&&<Climate climate={climate} city={city} link={link} view={Astro.url.searchParams.get('view')} page={Astro.url.searchParams.get('page')}/>}
   {tab==='sources'&&<Sources status={status} errors={errors} forecast={forecast} ecmwf={ecmwf} gfs={gfs} rainfall={rainfall} climate={climate} pressure={pressure}/>}
   </main>
-  <footer><span><a href="https://open-meteo.com/">Open-Meteo · CC BY 4.0</a></span><a href={link('sources')}>Sources & status{errors.length?` · ${errors.length} issue(s)`:''}</a><a href={link(tab,{cycle:cycle?'0':'1'})}>{cycle?'Stop rotation':'Rotate tabs'}</a></footer>
+  <footer><span><a href="https://open-meteo.com/">Open-Meteo · CC BY 4.0</a></span><a href={link('sources')}>Sources & status{errors.length?` · ${errors.length} issue(s)`:''}</a><a href={link(tab,{layout:landscape?'auto':'landscape'})}>{landscape?'Auto layout':'Reader landscape'}</a><a href={link(tab,{cycle:cycle?'0':'1'})}>{cycle?'Stop rotation':'Rotate tabs'}</a></footer>
 </div></body></html>

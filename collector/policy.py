@@ -65,10 +65,12 @@ class Client:
           CREATE TABLE IF NOT EXISTS cache(key TEXT PRIMARY KEY, fetched REAL, etag TEXT, modified TEXT);
           CREATE TABLE IF NOT EXISTS jobs(name TEXT PRIMARY KEY, due REAL, updated REAL, error TEXT);
           CREATE TABLE IF NOT EXISTS attempts(at REAL, provider TEXT, units REAL);
+          CREATE TABLE IF NOT EXISTS provider_required_pause(name TEXT PRIMARY KEY, until REAL);
         ''')
         self.now, self.sleep = now, sleep
         self.sent_requests, self.reserved_units = 0, 0
         self.archive_allowance = None
+        self.manual_archive_retry = False
         self.opener = opener or urllib.request.build_opener(NoRedirect()).open
         self.agent = 'BetterMeteo/0.1 personal cached dashboard' + (f' ({contact})' if contact else '')
 
@@ -91,9 +93,33 @@ class Client:
         self.db.execute('DELETE FROM attempts WHERE at<?',(self.now()-86400,))
         self.db.commit()
 
-    def run(self, name, interval, action):
-        row = self.db.execute('SELECT due FROM jobs WHERE name=?', (name,)).fetchone()
-        if row and row[0] > self.now():
+    @contextlib.contextmanager
+    def manual_history(self):
+        previous = self.manual_archive_retry
+        self.manual_archive_retry = True
+        try:
+            yield
+        finally:
+            self.manual_archive_retry = previous
+
+    def blocked_until(self, provider, manual_archive=False):
+        row = self.db.execute('SELECT blocked,error FROM provider WHERE name=?',(provider,)).fetchone()
+        if not row:
+            return 0
+        if manual_archive:
+            required = self.db.execute('SELECT until FROM provider_required_pause WHERE name=?',(provider,)).fetchone()
+            if required is not None:
+                return required[0]
+            # Old databases lack response-header metadata. Only the known HTTP-200
+            # streaming timeout is unambiguously a transient, non-rate-limit error.
+            if (row[1] or '').startswith('Open-Meteo returned invalid JSON') and 'timeoutReached' in row[1]:
+                return 0
+        return row[0]
+
+    def run(self, name, interval, action, retry_failed=False):
+        row = self.db.execute('SELECT due,error FROM jobs WHERE name=?', (name,)).fetchone()
+        manual_failure = self.manual_archive_retry and retry_failed and row and row[1]
+        if row and row[0] > self.now() and not manual_failure:
             return False
         # Reserve the next slot BEFORE work. A crash never causes an immediate retry.
         self.db.execute('INSERT INTO jobs VALUES(?,?,NULL,NULL) ON CONFLICT(name) DO UPDATE SET due=excluded.due', (name,self.now()+interval))
@@ -110,7 +136,7 @@ class Client:
         return True
 
     def get(self, provider, url, ttl, max_bytes, units=1, headers=None, validator=None):
-        from urllib.parse import urlsplit
+        from urllib.parse import urlsplit, parse_qs
         parsed = urlsplit(url)
         if provider not in HOSTS or parsed.scheme != 'https' or parsed.hostname not in HOSTS[provider] or parsed.username or parsed.port not in (None,443):
             raise ValueError('Provider URL is not allowlisted')
@@ -132,6 +158,8 @@ class Client:
             if cached and self.now()-cached[0] < ttl:
                 return body
         policy = dict(POLICIES[provider])
+        manual_archive = (self.manual_archive_retry and parsed.hostname == 'archive-api.open-meteo.com'
+                          and parsed.path == '/v1/archive' and parse_qs(parsed.query).get('models') == ['era5'])
         # Owner-approved, dated archive bootstrap only. Never changes defaults or
         # counters, and cannot affect forecasts, other hosts, or a later UTC day.
         day = time.strftime('%Y-%m-%d',time.gmtime(self.now()))
@@ -144,8 +172,9 @@ class Client:
                     and query.get('end_date', ['9999'])[0] <= '2025-12-31'):
                 policy.update(requests=40, units=2500, hour_units=2500)
         state = self.db.execute('SELECT last,blocked FROM provider WHERE name=?',(provider,)).fetchone()
-        if state and state[1] > self.now():
-            raise Deferred(f'{provider} in cooldown until {time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(state[1]))}')
+        blocked = self.blocked_until(provider,manual_archive)
+        if blocked > self.now():
+            raise Deferred(f'{provider} in cooldown until {time.strftime("%Y-%m-%d %H:%M UTC",time.gmtime(blocked))}')
         if state:
             self.sleep(max(0,policy['gap']-(self.now()-state[0])))
         day = time.strftime('%Y-%m-%d',time.gmtime(self.now()))
@@ -170,6 +199,7 @@ class Client:
         if cached and path.exists():
             if cached[1]: request_headers['If-None-Match'] = cached[1]
             if cached[2]: request_headers['If-Modified-Since'] = cached[2]
+        response_headers = {}
         try:
             request = urllib.request.Request(url, headers=request_headers)
             try:
@@ -191,6 +221,7 @@ class Client:
                         exc.close()
                     raise
                 response = exc
+            response_headers = response.headers
             with response:
                 if response.code == 304:
                     body = path.read_bytes()
@@ -224,14 +255,18 @@ class Client:
             return body
         except Exception as exc:
             delay = policy['cooldown']
-            if isinstance(exc, urllib.error.HTTPError):
-                retry = (exc.headers or {}).get('Retry-After','')
-                try:
-                    retry_delay = float(retry)
-                except ValueError:
-                    try: retry_delay = email.utils.parsedate_to_datetime(retry).timestamp()-self.now()
-                    except (TypeError,ValueError,OverflowError): retry_delay = 0
-                delay = max(delay,retry_delay)
+            required_pause = 0
+            error_headers = exc.headers if isinstance(exc,urllib.error.HTTPError) else response_headers
+            retry = (error_headers or {}).get('Retry-After','')
+            try:
+                retry_delay = float(retry)
+            except ValueError:
+                try: retry_delay = email.utils.parsedate_to_datetime(retry).timestamp()-self.now()
+                except (TypeError,ValueError,OverflowError): retry_delay = 0
+            delay = max(delay,retry_delay)
+            if (isinstance(exc,urllib.error.HTTPError) and exc.code == 429) or retry_delay > 0:
+                required_pause = self.now()+delay
+            self.db.execute('INSERT OR REPLACE INTO provider_required_pause VALUES(?,?)',(provider,required_pause))
             self.db.execute('UPDATE provider SET blocked=?,error=? WHERE name=?',(self.now()+delay,str(exc),provider))
             self.db.commit()
             raise
